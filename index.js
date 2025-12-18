@@ -30,6 +30,7 @@ async function run() {
     const DB = client.db("assetVerse");
     const users = DB.collection("users");
     const assets = DB.collection("assets");
+    const requests = DB.collection("requests");
 
     // ================================
 
@@ -69,27 +70,83 @@ async function run() {
     app.get("/assets", async (req, res) => {
       const email = req.query.email;
       const search = req.query.search;
-      
-      const query = { hrEmail: email };
+      const id = req.query.id;
+      const quantity = req.query.quantity;
 
-      if (!email) {
-        return res
-          .status(400)
-          .send({ error: "Email query parameter is required" });
+      const query = {};
+
+      if(email){
+         query.hrEmail = email;
       }
 
-      const hr = await assets.findOne(query);
-      if (!hr) {
-        return res.status(404).send({ error: "HR not found" });
+      if (id) {
+        try {
+          query._id = new ObjectId(id);
+        } catch (err) {
+          return res.status(400).send({ error: "Invalid asset ID format" });
+        }
       }
-      
+
       if (search) {
         query.productName = { $regex: search, $options: "i" };
       }
 
+      // Apply quantity filter only if quantity_gt is provided
+      if (quantity === "true") {
+    query.productQuantity = { $gt: 0 };
+  }
+
       const hrAssets = await assets.find(query).toArray();
       res.send(hrAssets);
     });
+
+    // delete data from asset
+    app.delete("/assets/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await assets.deleteOne(query);
+      res.send(result);
+    });
+
+    //update
+    app.patch("/assets/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateData = req.body;
+      console.log(updateData);
+      const update = {
+        $set: updateData,
+      };
+      const result = await assets.updateOne(query, update);
+      res.send(result);
+    });
+
+
+    app.post("/requests", async(req, res)=> {
+      const requestData = req.body;
+      const result = await requests.insertOne(requestData);
+      res.send(result);
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
