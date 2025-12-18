@@ -129,6 +129,33 @@ async function run() {
     })
 
 
+    // get requests
+app.get("/requests", async (req, res) => {
+  const  requesterEmail = req.query.requesterEmail;
+  const assetType = req.query.assetType
+  const search = req.query.search
+
+  if (!requesterEmail) {
+    return res.status(400).send({ error: "requesterEmail is required" });
+  }
+
+  const query = { requesterEmail };
+
+  if (search) {
+    query.assetName = { $regex: search, $options: "i" };
+  }
+
+  if (assetType && assetType !== "all") {
+    query.assetType = assetType;
+  }
+
+
+    const result = await requests.find(query).toArray();
+    res.send(result);
+
+});
+
+
 
 
 
