@@ -31,6 +31,8 @@ async function run() {
     const users = DB.collection("users");
     const assets = DB.collection("assets");
     const requests = DB.collection("requests");
+    const employeeAffiliations = DB.collection("employeeAffiliations");
+    const assignedAssets = DB.collection("assignedAssets");
 
     // ================================
 
@@ -185,9 +187,77 @@ async function run() {
         if (assetResult.modifiedCount === 0) {
           return res.status(400).send({ message: "Asset out of stock" });
         }
+
+        // Check affiliation
+        const hrData = await users.findOne({ email: request.hrEmail });
+        const employeeData = await users.findOne({
+          email: request.requesterEmail,
+        });
+        const existingAffiliation = await employeeAffiliations.findOne({
+          employeeEmail: request.requesterEmail,
+          hrEmail: request.hrEmail,
+          companyName: request.companyName,
+          status: "active",
+        });
+
+        // Create affiliation if first time
+        if (existingAffiliation) {
+          await employeeAffiliations.updateOne(
+            { _id: existingAffiliation._id },
+            { $inc: { assetCount: 1 } }
+          );
+        } else {
+          await employeeAffiliations.insertOne({
+            employeeEmail: request.requesterEmail,
+            employeeName: request.requesterName,
+            employeeLogo: employeeData.photoURL,
+            hrEmail: request.hrEmail,
+            companyName: request.companyName,
+            companyLogo: hrData.companyLogo,
+            assetCount: 1,
+            affiliationDate: new Date(),
+            status: "active",
+          });
+        }
+
+        await assignedAssets.insertOne({
+          assetId: request.assetId,
+          assetName: request.assetName,
+          assetImage: request.assetImage,
+          assetType: request.assetType,
+          employeeEmail: request.requesterEmail,
+          employeeName: request.requesterName,
+          hrEmail: request.hrEmail,
+          companyName: request.companyName,
+          assignmentDate: new Date(),
+          returnDate: null,
+          status: "assigned",
+        });
       }
 
       const result = await requests.updateOne(query, update);
+      res.send(result);
+    });
+
+    //employee list
+    app.get("/employeeAffiliations", async (req, res) => {
+      const { hrEmail } = req.query;
+
+      if (!hrEmail) {
+        return res
+          .status(400)
+          .json({ error: "hrEmail query parameter is required" });
+      }
+
+      const result = await employeeAffiliations.find({ hrEmail }).toArray();
+      res.send(result);
+    });
+
+    // delete data from asset
+    app.delete("/employeeAffiliations/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { employeeEmail: email };
+      const result = await employeeAffiliations.deleteOne(query);
       res.send(result);
     });
 
