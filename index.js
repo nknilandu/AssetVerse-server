@@ -95,7 +95,7 @@ async function run() {
 
       // Apply quantity filter only if quantity_gt is provided
       if (quantity === "true") {
-        query.productQuantity = { $gt: 0 };
+        query.availableQuantity = { $gt: 0 };
       }
 
       const hrAssets = await assets.find(query).toArray();
@@ -172,21 +172,13 @@ async function run() {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const updateData = req.body;
-      const { requestStatus } = req.body;
+      const { requestStatus, processedBy } = req.body;
       const update = {
         $set: updateData,
       };
 
       if (requestStatus === "approved") {
         const request = await requests.findOne({ _id: new ObjectId(id) });
-        const assetResult = await assets.updateOne(
-          { _id: new ObjectId(request.assetId), availableQuantity: { $gt: 0 } },
-          { $inc: { availableQuantity: -1 } }
-        );
-
-        if (assetResult.modifiedCount === 0) {
-          return res.status(400).send({ message: "Asset out of stock" });
-        }
 
         // Check affiliation
         const hrData = await users.findOne({ email: request.hrEmail });
@@ -206,7 +198,31 @@ async function run() {
             { _id: existingAffiliation._id },
             { $inc: { assetCount: 1 } }
           );
+
+          const assetResult = await assets.updateOne(
+            {
+              _id: new ObjectId(request.assetId),
+              availableQuantity: { $gt: 0 },
+            },
+            { $inc: { availableQuantity: -1 } }
+          );
+
+          if (assetResult.modifiedCount === 0) {
+            return res.status(400).send({ message: "Asset out of stock" });
+          }
         } else {
+          // check package
+          const totalEmployees = await employeeAffiliations.countDocuments({
+            hrEmail: processedBy,
+            status: "active",
+          });
+
+          if (totalEmployees >= hrData.packageLimit) {
+            return res
+              .status(400)
+              .send({ message: "Employee limit reached. Upgrade package." });
+          }
+
           await employeeAffiliations.insertOne({
             employeeEmail: request.requesterEmail,
             employeeName: request.requesterName,
@@ -218,6 +234,18 @@ async function run() {
             affiliationDate: new Date(),
             status: "active",
           });
+
+          const assetResult = await assets.updateOne(
+            {
+              _id: new ObjectId(request.assetId),
+              availableQuantity: { $gt: 0 },
+            },
+            { $inc: { availableQuantity: -1 } }
+          );
+
+          if (assetResult.modifiedCount === 0) {
+            return res.status(400).send({ message: "Asset out of stock" });
+          }
         }
 
         await assignedAssets.insertOne({
