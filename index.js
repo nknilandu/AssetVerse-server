@@ -75,8 +75,8 @@ async function run() {
 
       const query = {};
 
-      if(email){
-         query.hrEmail = email;
+      if (email) {
+        query.hrEmail = email;
       }
 
       if (id) {
@@ -93,8 +93,8 @@ async function run() {
 
       // Apply quantity filter only if quantity_gt is provided
       if (quantity === "true") {
-    query.productQuantity = { $gt: 0 };
-  }
+        query.productQuantity = { $gt: 0 };
+      }
 
       const hrAssets = await assets.find(query).toArray();
       res.send(hrAssets);
@@ -113,7 +113,6 @@ async function run() {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const updateData = req.body;
-      console.log(updateData);
       const update = {
         $set: updateData,
       };
@@ -121,61 +120,76 @@ async function run() {
       res.send(result);
     });
 
-
-    app.post("/requests", async(req, res)=> {
+    app.post("/requests", async (req, res) => {
       const requestData = req.body;
       const result = await requests.insertOne(requestData);
       res.send(result);
-    })
-
+    });
 
     // get requests
-app.get("/requests", async (req, res) => {
-  const  requesterEmail = req.query.requesterEmail;
-  const assetType = req.query.assetType
-  const search = req.query.search
+    app.get("/requests", async (req, res) => {
+      const { requesterEmail, assetType, search, hrEmail, status } = req.query;
+      const query = {};
 
-  if (!requesterEmail) {
-    return res.status(400).send({ error: "requesterEmail is required" });
-  }
+      if (requesterEmail) {
+        query.requesterEmail = requesterEmail;
+      }
+      if (hrEmail) {
+        query.hrEmail = hrEmail;
+      }
+      if (status && status !== "all") {
+        query.requestStatus = status;
+      }
 
-  const query = { requesterEmail };
+      if (search) {
+        query.assetName = { $regex: search, $options: "i" };
+      }
 
-  if (search) {
-    query.assetName = { $regex: search, $options: "i" };
-  }
+      if (assetType && assetType !== "all") {
+        query.assetType = assetType;
+      }
 
-  if (assetType && assetType !== "all") {
-    query.assetType = assetType;
-  }
+      const result = await requests.find(query).toArray();
+      res.send(result);
+    });
 
+    // update (return) for employee
+    app.patch("/requests/return/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateData = req.body;
+      const update = {
+        $set: updateData,
+      };
+      const result = await requests.updateOne(query, update);
+      res.send(result);
+    });
 
-    const result = await requests.find(query).toArray();
-    res.send(result);
+    // update status for hr
+    app.patch("/requests/status/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateData = req.body;
+      const { requestStatus } = req.body;
+      const update = {
+        $set: updateData,
+      };
 
-});
+      if (requestStatus === "approved") {
+        const request = await requests.findOne({ _id: new ObjectId(id) });
+        const assetResult = await assets.updateOne(
+          { _id: new ObjectId(request.assetId), availableQuantity: { $gt: 0 } },
+          { $inc: { availableQuantity: -1 } }
+        );
 
+        if (assetResult.modifiedCount === 0) {
+          return res.status(400).send({ message: "Asset out of stock" });
+        }
+      }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+      const result = await requests.updateOne(query, update);
+      res.send(result);
+    });
 
     //=================================
     // Send a ping to confirm a successful connection
