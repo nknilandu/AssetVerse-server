@@ -33,8 +33,17 @@ async function run() {
     const requests = DB.collection("requests");
     const employeeAffiliations = DB.collection("employeeAffiliations");
     const assignedAssets = DB.collection("assignedAssets");
+    const packages  = DB.collection("packages");
 
     // ================================
+
+
+    // get package data
+    app.get('/packages', async (req, res)=> {
+      const result = await packages.find().toArray();
+      res.send(result);
+    })
+
 
     // post user data
     app.post("/users", async (req, res) => {
