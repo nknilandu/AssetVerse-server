@@ -80,6 +80,26 @@ async function run() {
       res.send(result);
     });
 
+    // profile update
+    app.patch("/users", async (req, res) => {
+      const email = req.query.email;
+      const updateData = req.body;
+      if (!email) {
+        return res
+          .send({
+            error: "email query parameter is required for updating profile",
+          })
+          .status(400);
+      }
+
+      const query = { email: email };
+      const update = {
+        $set: updateData,
+      };
+      const result = await users.updateOne(query, update);
+      res.send(result);
+    });
+
     // add asset
     app.post("/assets", async (req, res) => {
       const asset = req.body;
