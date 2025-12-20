@@ -2,9 +2,12 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const app = express();
+const crypto = require("crypto");
 const port = process.env.PORT || 2031;
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
+const stripe = require("stripe")(process.env.STRIPE_API);
 
 // middleware
 app.use(express.json());
@@ -12,6 +15,14 @@ app.use(cors());
 
 // importent
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster.sofxk3k.mongodb.net/?appName=Cluster`;
+
+// generrate trx id
+const generateTransactionId = () => {
+  const timestamp = Date.now().toString(36); // compact, sortable time
+  const randomPart = crypto.randomBytes(6).toString("hex");
+
+  return `TXN-${timestamp}-${randomPart}`;
+};
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -33,17 +44,16 @@ async function run() {
     const requests = DB.collection("requests");
     const employeeAffiliations = DB.collection("employeeAffiliations");
     const assignedAssets = DB.collection("assignedAssets");
-    const packages  = DB.collection("packages");
+    const packages = DB.collection("packages");
+    const payments = DB.collection("payments");
 
     // ================================
 
-
     // get package data
-    app.get('/packages', async (req, res)=> {
+    app.get("/packages", async (req, res) => {
       const result = await packages.find().toArray();
       res.send(result);
-    })
-
+    });
 
     // post user data
     app.post("/users", async (req, res) => {
@@ -276,17 +286,70 @@ async function run() {
       res.send(result);
     });
 
-    //employee list
-    app.get("/employeeAffiliations", async (req, res) => {
-      const { hrEmail } = req.query;
+    ////
+    ////
+    ////
+    ////
+    ////
 
-      if (!hrEmail) {
-        return res
-          .status(400)
-          .json({ error: "hrEmail query parameter is required" });
+    app.get("/employeeAffiliations/companyName", async (req, res) => {
+      const { companyName } = req.query;
+
+      if (!companyName) {
+        return res.status(400).send({ message: "companyName is required" });
       }
 
-      const result = await employeeAffiliations.find({ hrEmail }).toArray();
+      const result = await employeeAffiliations
+        .find(
+          {
+            companyName,
+            status: "active",
+          },
+          {
+            projection: {
+              employeeName: 1,
+              employeeEmail: 1,
+              employeeLogo: 1,
+              position: 1,
+              affiliationDate: 1,
+            },
+          }
+        )
+        .toArray();
+
+      res.send(result);
+    });
+
+    //////
+    //////
+    //////
+    //////
+    //////
+    //////
+    //////
+    //////
+
+    // employee affiliations
+    app.get("/employeeAffiliations", async (req, res) => {
+      const { hrEmail, employeeEmail } = req.query;
+
+      const query = {};
+
+      if (hrEmail) {
+        query.hrEmail = hrEmail;
+      }
+
+      if (employeeEmail) {
+        query.employeeEmail = employeeEmail;
+      }
+
+      if (!hrEmail && !employeeEmail) {
+        return res.status(400).json({
+          error: "hrEmail or employeeEmail query parameter is required",
+        });
+      }
+
+      const result = await employeeAffiliations.find(query).toArray();
       res.send(result);
     });
 
@@ -296,6 +359,142 @@ async function run() {
       const query = { employeeEmail: email };
       const result = await employeeAffiliations.deleteOne(query);
       res.send(result);
+    });
+    // ============================
+
+    app.get("/my-companies", async (req, res) => {
+      const { employeeEmail } = req.query;
+
+      if (!employeeEmail) {
+        return res.status(400).send({ message: "employeeEmail is required" });
+      }
+
+      const companies = await employeeAffiliations.distinct("companyName", {
+        employeeEmail,
+        status: "active",
+      });
+
+      res.send(companies);
+    });
+
+    app.get("/team-birthdays", async (req, res) => {
+      const { companyName } = req.query;
+
+      if (!companyName) {
+        return res.status(400).send({ message: "companyName is required" });
+      }
+
+      const currentMonth = new Date().getMonth() + 1;
+
+      const birthdays = await employeeAffiliations
+        .aggregate([
+          {
+            $match: {
+              companyName,
+              status: "active",
+              dateOfBirth: { $exists: true },
+            },
+          },
+          {
+            $addFields: {
+              birthMonth: { $month: "$dateOfBirth" },
+            },
+          },
+          {
+            $match: {
+              birthMonth: currentMonth,
+            },
+          },
+          {
+            $project: {
+              employeeName: 1,
+              employeeEmail: 1,
+              employeeLogo: 1,
+              dateOfBirth: 1,
+            },
+          },
+        ])
+        .toArray();
+
+      res.send(birthdays);
+    });
+
+    //============ STRIPE payment ====================
+
+    app.post("/checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            // Provide the exact Price ID (for example, price_1234) of the product you want to sell
+            // price: '{{PRICE_ID}}',
+            quantity: 1,
+            price_data: {
+              currency: "USD",
+              unit_amount: parseInt(paymentInfo.price) * 100,
+              product_data: {
+                name: `Subscription: ${paymentInfo.subscription}`,
+                description: `Pay ${paymentInfo.price}$ to get this ${paymentInfo.subscription} package`,
+              },
+            },
+          },
+        ],
+        customer_email: paymentInfo.senderEmail,
+        mode: "payment",
+        metadata: {
+          packageId: paymentInfo.packageId,
+          createdAt: new Date(),
+        },
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
+      });
+
+      console.log(session);
+      res.send({ url: session.url });
+    });
+
+    //check payment success
+    app.patch("/verify-payment-success", async (req, res) => {
+      const sessionId = req.query.session_id;
+      const hrEmail = req.body.email;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (session.payment_status === "paid") {
+        const id = session.metadata.packageId;
+        const trackingId = generateTransactionId();
+
+        // searching packeage
+        const packageData = await packages.findOne({ _id: new ObjectId(id) });
+
+        await payments.insertOne({
+          hrEmail: hrEmail,
+          packageId: id,
+          packageName: packageData.name,
+          employeeLimit: packageData.employeeLimit,
+          amount: packageData.price,
+          trackingId: trackingId,
+          transactionId: session.payment_intent,
+          status: session.payment_status,
+          paymentDate: new Date(),
+        });
+
+        const query = { email: hrEmail };
+        const update = {
+          $set: {
+            packageLimit: packageData.employeeLimit,
+            subscription: packageData.name,
+          },
+        };
+
+        const result = await users.updateOne(query, update);
+        return res.send({
+          modifiedPackage: result,
+          trackingId: trackingId,
+          transactionId: session.payment_intent,
+          status: session.payment_status,
+        });
+      }
+      res.send({ success: false });
     });
 
     //=================================
