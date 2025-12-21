@@ -473,7 +473,7 @@ async function run() {
       res.send({ url: session.url });
     });
 
-    //check payment success
+    //======== check payment success ==========
     app.patch("/verify-payment-success", async (req, res) => {
       const sessionId = req.query.session_id;
       const hrEmail = req.body.email;
@@ -515,6 +515,47 @@ async function run() {
         });
       }
       res.send({ success: false });
+    });
+
+    // ==================== Analytics with Recharts ==================
+
+    app.get("/analytics/asset-types", async (req, res) => {
+      const { hrEmail } = req.query;
+
+      const data = await assets
+        .aggregate([
+          { $match: { hrEmail } },
+          {
+            $group: {
+              _id: "$productType",
+              count: { $sum: 1 },
+            },
+          },
+        ])
+        .toArray();
+
+      res.send(data);
+    });
+
+    //top  asset
+    app.get("/analytics/top-assets", async (req, res) => {
+      const { hrEmail } = req.query;
+
+      const data = await requests
+        .aggregate([
+          { $match: { hrEmail } },
+          {
+            $group: {
+              _id: "$assetName",
+              requests: { $sum: 1 },
+            },
+          },
+          { $sort: { requests: -1 } },
+          { $limit: 5 },
+        ])
+        .toArray();
+
+      res.send(data);
     });
 
     //=================================
