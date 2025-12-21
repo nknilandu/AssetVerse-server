@@ -113,6 +113,8 @@ async function run() {
       const search = req.query.search;
       const id = req.query.id;
       const quantity = req.query.quantity;
+      const limit = Number(req.query.limit) || 10;
+      const skip = Number(req.query.skip) || 0;
 
       const query = {};
 
@@ -136,9 +138,11 @@ async function run() {
       if (quantity === "true") {
         query.availableQuantity = { $gt: 0 };
       }
+        const total = await assets.countDocuments(query);
 
-      const hrAssets = await assets.find(query).toArray();
-      res.send(hrAssets);
+      const assetData = await assets.find(query).limit(limit).skip(skip).toArray();
+      res.send({assetData, totalData: total});
+
     });
 
     // delete data from asset
