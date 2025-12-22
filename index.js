@@ -606,33 +606,81 @@ async function run() {
     );
 
     //get company affiliations
-    app.get("/employeeAffiliations/companyAffiliations", verifyFirebaseToken, async (req, res)=> {
+    app.get(
+      "/employeeAffiliations/companyAffiliations",
+      verifyFirebaseToken,
+      async (req, res) => {
+        const { affiliationId, employeeEmail } = req.query;
 
-      const { affiliationId, employeeEmail } = req.query;
+        if (!affiliationId) {
+          return res.send([]);
+        }
 
-      if(!affiliationId && !employeeEmail) {
-        return res.status(400).send({ message: "Bad Request" });
+        if (!employeeEmail) {
+          return res.status(400).send({ message: "Bad Request" });
+        }
+
+        if (employeeEmail !== req.tokenMail) {
+          return res.status(403).send({ message: "Forbidden Access" });
+        }
+
+        // const query = { _id : new ObjectId(affiliationId) }
+        // const company = await employeeAffiliations.findOne(query)
+        // const companyName = company.companyName;
+
+        // if(!companyName){
+        //   return res.status(400).send({ message: "Bad Request. Company Data Not found" });
+        // }
+
+        // const result = await employeeAffiliations.find({companyName}).toArray()
+        // res.send(result)
+
+        const affiliation = await employeeAffiliations.findOne({
+          _id: new ObjectId(affiliationId),
+        });
+
+        if (!affiliation?.companyName) {
+          return res.status(400).send({ message: "Bad Request" });
+        }
+
+        const result = await employeeAffiliations
+          .aggregate([
+            {
+              $match: { companyName: affiliation.companyName },
+            },
+            {
+              $lookup: {
+                from: "users",
+                localField: "employeeEmail",
+                foreignField: "email",
+                as: "userInfo",
+              },
+            },
+            {
+              $unwind: {
+                path: "$userInfo",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $project: {
+                employeeEmail: 1,
+                employeeName: 1,
+                employeeLogo: 1,
+                companyName: 1,
+                companyLogo: 1,
+                assetCount: 1,
+                affiliationDate: 1,
+                status: 1,
+                dateOfBirth: "$userInfo.dateOfBirth",
+              },
+            },
+          ])
+          .toArray();
+
+        res.send(result);
       }
-
-      if(employeeEmail !== req.tokenMail){
-        return res.status(403).send({ message: "Forbidden Access" });
-      }
-
-      const query = { _id : new ObjectId(affiliationId) }
-      const company = await employeeAffiliations.findOne(query)
-      const companyName = company.companyName;
-
-      if(!companyName){
-        return res.status(400).send({ message: "Bad Request. Company Data Not found" });
-      }
-
-      const result = await employeeAffiliations.find({companyName}).toArray()
-      res.send(result)
-
-
-
-
-    })
+    );
 
     // delete data from asset
     app.delete(
@@ -657,49 +705,9 @@ async function run() {
     );
     // ============================
 
-    app.get("/team-birthdays", verifyFirebaseToken, async (req, res) => {
-      const { companyName } = req.query;
-
-      if (!companyName) {
-        return res.status(400).send({ message: "companyName is required" });
-      }
-
-      const currentMonth = new Date().getMonth() + 1;
-
-      const birthdays = await employeeAffiliations
-        .aggregate([
-          {
-            $match: {
-              companyName,
-              status: "active",
-              dateOfBirth: { $exists: true },
-            },
-          },
-          {
-            $addFields: {
-              birthMonth: { $month: "$dateOfBirth" },
-            },
-          },
-          {
-            $match: {
-              birthMonth: currentMonth,
-            },
-          },
-          {
-            $project: {
-              employeeName: 1,
-              employeeEmail: 1,
-              employeeLogo: 1,
-              dateOfBirth: 1,
-            },
-          },
-        ])
-        .toArray();
-
-      res.send(birthdays);
-    });
-
-    //============ STRIPE payment ====================
+    //
+    // ======================= STRIPE payment ===========================
+    //
 
     app.post("/checkout-session", async (req, res) => {
       const paymentInfo = req.body;
@@ -777,7 +785,9 @@ async function run() {
       res.send({ success: false });
     });
 
-    // ==================== Analytics with Recharts ==================
+    //
+    // ======================= Analytics with Recharts ===========================
+    //
 
     app.get(
       "/analytics/asset-types",
@@ -845,6 +855,10 @@ async function run() {
         res.send(data);
       }
     );
+
+    //
+    // ======================= end ===========================
+    //
 
     //=================================
     // Send a ping to confirm a successful connection
